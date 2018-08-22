@@ -6,6 +6,9 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_httpauth import HTTPBasicAuth
 from passlib.apps import custom_app_context as pwd_context
 from itsdangerous import (TimedJSONWebSignatureSerializer as Serializer, BadSignature, SignatureExpired)
+from datetime import datetime
+from elasticsearch import Elasticsearch
+import json
 
 # initialization
 
@@ -16,6 +19,7 @@ app.config['SQLALCHEMY_COMMIT_ON_TEARDOWN'] = True
 # extensions
 db = SQLAlchemy(app)
 auth = HTTPBasicAuth()
+es=Elasticsearch()
 #g.auth=auth
 
 class User(db.Model):
@@ -42,6 +46,8 @@ class User(db.Model):
             return None    # invalid token
         user = User.query.get(data['id'])
         return user
+
+
 
 @auth.verify_password
 def verify_password(username_or_token, password):
@@ -101,6 +107,31 @@ def get_auth_token():
 @auth.login_required
 def get_resource():
     return jsonify({'data': 'Hello, %s!' % g.user.username})
+
+
+@app.route('/api/search/<indexS>/<searchstring>')
+def getDocuments(indexS,searchstring):
+    res = es.search(index=indexS, body={"query": {"match": {"tags": searchstring}}})
+    docList=[]
+    print("Got %d Hits:" % res['hits']['total'])
+    for hit in res['hits']['hits']:
+        print("%(timestamp)s %(author)s: %(text)s" % hit["_source"])
+        #docList.append(json.dumps(hit["_source"]))
+        docList.append(hit["_source"])
+    jsondumpstr= json.dumps(docList)
+    return jsonify({'matchingdocs':jsondumpstr})
+
+    @app.route('/api/document1/',methods=['POST'])
+    def addDocument():
+        if request.headers['Content-Type'] == 'application/json':
+            payload=json.dumps(request.json)
+            print(payload)
+            res = es.index(index="blogindex", doc_type='blogpost', body=payload)
+            result=res['result'];
+            return jsonify({'result':result})
+        else:
+            return "415 Unsupported!!"
+
 
 if __name__ == '__main__':
     if not os.path.exists('db.sqlite'):
